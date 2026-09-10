@@ -1,0 +1,20 @@
+# Gradle / AGP
+.gradle/
+build/
+app/build/
+app/.cxx/
+.externalNativeBuild/
+captures/
+
+# 本机配置与签名(不入库)
+local.properties
+signing.properties
+*.jks
+*.keystore
+
+# IDE
+.idea/
+*.iml
+.kotlin/
+.DS_Store
+*.hprof

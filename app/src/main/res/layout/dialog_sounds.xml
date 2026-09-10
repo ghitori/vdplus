@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content">
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:paddingLeft="8dp"
+        android:paddingRight="8dp"
+        android:paddingTop="8dp"
+        android:paddingBottom="8dp">
+        <com.google.android.material.materialswitch.MaterialSwitch android:id="@+id/snd0" style="@style/VD.Switch" android:text="Potato"/>
+        <com.google.android.material.materialswitch.MaterialSwitch android:id="@+id/snd1" style="@style/VD.Switch" android:text="Ultra"/>
+        <com.google.android.material.materialswitch.MaterialSwitch android:id="@+id/snd2" style="@style/VD.Switch" android:text="Godlike"/>
+        <com.google.android.material.materialswitch.MaterialSwitch android:id="@+id/snd3" style="@style/VD.Switch" android:text="Monster"/>
+        <com.google.android.material.materialswitch.MaterialSwitch android:id="@+id/snd4" style="@style/VD.Switch" android:text="Rampage"/>
+        <com.google.android.material.materialswitch.MaterialSwitch android:id="@+id/snd5" style="@style/VD.Switch" android:text="Unstoppable"/>
+        <com.google.android.material.materialswitch.MaterialSwitch android:id="@+id/snd6" style="@style/VD.Switch" android:text="Holy Shit"/>
+    </LinearLayout>
+</ScrollView>

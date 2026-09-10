@@ -1,0 +1,63 @@
+plugins { id 'com.android.application' }
+
+// 签名: 优先读环境变量(CI 用 Secrets), 其次读根目录 signing.properties(本地, 不入库)
+def signing = new Properties()
+def signingFile = rootProject.file('signing.properties')
+if (signingFile.exists()) { signingFile.withInputStream { signing.load(it) } }
+def signingValue = { String key -> System.getenv(key) ?: signing.getProperty(key) }
+def keystorePath = signingValue('KEYSTORE_FILE')
+
+android {
+    namespace 'org.ghitori.vdplus'
+    compileSdk 34
+
+    defaultConfig {
+        applicationId "org.ghitori.vdplus"
+        minSdk 29
+        targetSdk 34
+        versionCode 100
+        versionName "1.0"
+        ndk { abiFilters "arm64-v8a" }
+    }
+
+    signingConfigs {
+        release {
+            if (keystorePath) {
+                storeFile file(keystorePath)
+                storePassword signingValue('KEYSTORE_PASSWORD')
+                keyAlias signingValue('KEY_ALIAS')
+                keyPassword signingValue('KEY_PASSWORD')
+            }
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            if (keystorePath) signingConfig signingConfigs.release
+        }
+    }
+
+    externalNativeBuild {
+        cmake { path file('src/main/cpp/CMakeLists.txt') }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    packaging {
+        jniLibs { useLegacyPackaging = true }
+        resources { excludes += ['META-INF/*.SF', 'META-INF/*.RSA', 'META-INF/*.DSA'] }
+    }
+
+    lint { abortOnError false }
+}
+
+dependencies {
+    implementation 'androidx.appcompat:appcompat:1.7.0'
+    implementation 'com.google.android.material:material:1.12.0'
+    compileOnly files('libs/libxposed-api.jar')
+    implementation files('libs/libxposed-service-full.jar')
+}

@@ -1,0 +1,220 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="?attr/colorSurface">
+
+    <com.google.android.material.appbar.MaterialToolbar
+        android:id="@+id/toolbar"
+        android:layout_width="match_parent"
+        android:layout_height="?attr/actionBarSize"
+        app:title="@string/app_name"
+        app:titleTextAppearance="?attr/textAppearanceHeadlineSmall"/>
+
+    <FrameLayout
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1">
+
+        <ScrollView
+            android:id="@+id/page_home"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:fillViewport="true">
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:padding="16dp">
+
+                <!-- 状态卡 -->
+                <com.google.android.material.card.MaterialCardView
+                    android:id="@+id/home_status"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    app:cardCornerRadius="24dp"
+                    app:cardElevation="0dp">
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="vertical"
+                        android:gravity="center_horizontal"
+                        android:paddingLeft="24dp"
+                        android:paddingRight="24dp"
+                        android:paddingTop="28dp"
+                        android:paddingBottom="28dp">
+                        <ImageView
+                            android:id="@+id/home_status_icon"
+                            android:layout_width="48dp"
+                            android:layout_height="48dp"
+                            android:contentDescription="@null"/>
+                        <TextView
+                            android:id="@+id/home_status_text"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="12dp"
+                            android:text="未激活"
+                            android:textSize="24sp"
+                            android:textStyle="bold"/>
+                        <TextView
+                            android:id="@+id/home_status_sub"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="8dp"
+                            android:gravity="center"
+                            android:lineSpacingExtra="2dp"
+                            android:textAppearance="?attr/textAppearanceBodyMedium"/>
+                    </LinearLayout>
+                </com.google.android.material.card.MaterialCardView>
+
+                <!-- 系统信息 -->
+                <com.google.android.material.card.MaterialCardView
+                    style="@style/VD.Card"
+                    app:cardCornerRadius="24dp">
+                    <LinearLayout
+                        android:id="@+id/home_info_system"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="vertical"
+                        android:paddingTop="4dp"
+                        android:paddingBottom="4dp"/>
+                </com.google.android.material.card.MaterialCardView>
+
+                <!-- 词典信息 -->
+                <com.google.android.material.card.MaterialCardView
+                    style="@style/VD.Card"
+                    app:cardCornerRadius="24dp">
+                    <LinearLayout
+                        android:id="@+id/home_info_dict"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="vertical"
+                        android:paddingTop="4dp"
+                        android:paddingBottom="4dp"/>
+                </com.google.android.material.card.MaterialCardView>
+            </LinearLayout>
+        </ScrollView>
+
+        <ScrollView
+            android:id="@+id/page_options"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:visibility="gone">
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:paddingLeft="16dp"
+                android:paddingRight="16dp"
+                android:paddingTop="4dp"
+                android:paddingBottom="24dp">
+
+                <TextView style="@style/VD.Section" android:text="字典"/>
+                <com.google.android.material.card.MaterialCardView style="@style/VD.Card">
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="vertical"
+                        android:paddingLeft="16dp"
+                        android:paddingRight="16dp"
+                        android:paddingTop="4dp"
+                        android:paddingBottom="4dp">
+                        <com.google.android.material.materialswitch.MaterialSwitch
+                            android:id="@+id/sw_use_dict"
+                            style="@style/VD.Switch"
+                            android:text="使用导入词典"/>
+                        <TextView android:id="@+id/row_import" style="@style/VD.Item" android:text="导入词典文件"/>
+                        <TextView android:id="@+id/row_restore" style="@style/VD.Item" android:text="恢复默认词典"/>
+                    </LinearLayout>
+                </com.google.android.material.card.MaterialCardView>
+
+                <TextView style="@style/VD.Section" android:text="声音"/>
+                <com.google.android.material.card.MaterialCardView style="@style/VD.Card">
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="vertical"
+                        android:paddingLeft="16dp"
+                        android:paddingRight="16dp"
+                        android:paddingTop="4dp"
+                        android:paddingBottom="4dp">
+                        <com.google.android.material.materialswitch.MaterialSwitch
+                            android:id="@+id/sw_no_music"
+                            style="@style/VD.Switch"
+                            android:text="禁用背景音乐"/>
+                        <LinearLayout
+                            android:id="@+id/row_no_perf"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:orientation="horizontal"
+                            android:gravity="center_vertical"
+                            android:minHeight="56dp">
+                            <LinearLayout
+                                android:layout_width="0dp"
+                                android:layout_height="wrap_content"
+                                android:layout_weight="1"
+                                android:orientation="vertical"
+                                android:paddingTop="8dp"
+                                android:paddingBottom="8dp">
+                                <TextView style="@style/VD.Title" android:text="禁用性能提示音"/>
+                                <TextView style="@style/VD.Support" android:text="长按可单独调节每个提示音"/>
+                            </LinearLayout>
+                            <com.google.android.material.materialswitch.MaterialSwitch
+                                android:id="@+id/sw_no_perf"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"/>
+                        </LinearLayout>
+                    </LinearLayout>
+                </com.google.android.material.card.MaterialCardView>
+
+                <TextView style="@style/VD.Section" android:text="码率"/>
+                <com.google.android.material.card.MaterialCardView style="@style/VD.Card">
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="vertical"
+                        android:paddingLeft="16dp"
+                        android:paddingRight="16dp"
+                        android:paddingTop="4dp"
+                        android:paddingBottom="4dp">
+                        <LinearLayout
+                            android:id="@+id/row_extend"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:orientation="horizontal"
+                            android:gravity="center_vertical"
+                            android:minHeight="56dp">
+                            <LinearLayout
+                                android:layout_width="0dp"
+                                android:layout_height="wrap_content"
+                                android:layout_weight="1"
+                                android:orientation="vertical"
+                                android:paddingTop="8dp"
+                                android:paddingBottom="8dp">
+                                <TextView style="@style/VD.Title" android:text="扩展码率范围"/>
+                                <TextView style="@style/VD.Support" android:text="长按可设置倍数"/>
+                            </LinearLayout>
+                            <com.google.android.material.materialswitch.MaterialSwitch
+                                android:id="@+id/sw_extend"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"/>
+                        </LinearLayout>
+                        <com.google.android.material.materialswitch.MaterialSwitch
+                            android:id="@+id/sw_unlock"
+                            style="@style/VD.Switch"
+                            android:text="解除自动测速码率限制"/>
+                    </LinearLayout>
+                </com.google.android.material.card.MaterialCardView>
+            </LinearLayout>
+        </ScrollView>
+    </FrameLayout>
+
+    <com.google.android.material.bottomnavigation.BottomNavigationView
+        android:id="@+id/bottom_nav"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        app:menu="@menu/bottom_nav"
+        app:labelVisibilityMode="labeled"/>
+</LinearLayout>

@@ -103,3 +103,14 @@ jobs:
           files: app/build/outputs/apk/release/app-release.apk
           generate_release_notes: true
           fail_on_unmatched_files: true
+
+      - name: Publish release to Xposed-Modules-Repo
+        if: needs.check.outputs.release == 'true'
+        uses: softprops/action-gh-release@v2
+        with:
+          repository: Xposed-Modules-Repo/com.ghitori.vdplus
+          token: ${{ secrets.MODULE_REPO_TOKEN }}
+          tag_name: v${{ needs.check.outputs.version }}
+          name: v${{ needs.check.outputs.version }}
+          files: app/build/outputs/apk/release/app-release.apk
+          fail_on_unmatched_files: true

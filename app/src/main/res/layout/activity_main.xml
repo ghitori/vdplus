@@ -34,6 +34,9 @@
                     android:id="@+id/home_status"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
+                    android:clickable="true"
+                    android:focusable="true"
+                    android:foreground="?attr/selectableItemBackground"
                     app:cardCornerRadius="24dp"
                     app:cardElevation="0dp">
                     <LinearLayout
@@ -72,6 +75,10 @@
                 <!-- 系统信息 -->
                 <com.google.android.material.card.MaterialCardView
                     style="@style/VD.Card"
+                    android:layout_marginTop="12dp"
+                    android:clickable="true"
+                    android:focusable="true"
+                    android:foreground="?attr/selectableItemBackground"
                     app:cardCornerRadius="24dp">
                     <LinearLayout
                         android:id="@+id/home_info_system"
@@ -85,6 +92,10 @@
                 <!-- 词典信息 -->
                 <com.google.android.material.card.MaterialCardView
                     style="@style/VD.Card"
+                    android:layout_marginTop="12dp"
+                    android:clickable="true"
+                    android:focusable="true"
+                    android:foreground="?attr/selectableItemBackground"
                     app:cardCornerRadius="24dp">
                     <LinearLayout
                         android:id="@+id/home_info_dict"
@@ -121,12 +132,57 @@
                         android:paddingRight="16dp"
                         android:paddingTop="4dp"
                         android:paddingBottom="4dp">
-                        <com.google.android.material.materialswitch.MaterialSwitch
-                            android:id="@+id/sw_use_dict"
-                            style="@style/VD.Switch"
-                            android:text="使用导入词典"/>
-                        <TextView android:id="@+id/row_import" style="@style/VD.Item" android:text="导入词典文件"/>
-                        <TextView android:id="@+id/row_restore" style="@style/VD.Item" android:text="恢复默认词典"/>
+                        <LinearLayout
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:orientation="horizontal"
+                            android:gravity="center_vertical"
+                            android:minHeight="56dp">
+                            <LinearLayout
+                                android:layout_width="0dp"
+                                android:layout_height="wrap_content"
+                                android:layout_weight="1"
+                                android:orientation="vertical"
+                                android:paddingTop="8dp"
+                                android:paddingBottom="8dp">
+                                <TextView style="@style/VD.Title" android:text="使用导入词典"/>
+                                <TextView style="@style/VD.Support" android:text="用自定义 JSON 词典覆盖内置词典"/>
+                            </LinearLayout>
+                            <com.google.android.material.materialswitch.MaterialSwitch
+                                android:id="@+id/sw_use_dict"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"/>
+                        </LinearLayout>
+                        <LinearLayout
+                            android:id="@+id/row_import"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:orientation="vertical"
+                            android:minHeight="56dp"
+                            android:gravity="center_vertical"
+                            android:background="?attr/selectableItemBackground"
+                            android:clickable="true"
+                            android:focusable="true"
+                            android:paddingTop="8dp"
+                            android:paddingBottom="8dp">
+                            <TextView style="@style/VD.Title" android:text="导入词典文件"/>
+                            <TextView style="@style/VD.Support" android:text="选择 JSON 文件导入"/>
+                        </LinearLayout>
+                        <LinearLayout
+                            android:id="@+id/row_restore"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:orientation="vertical"
+                            android:minHeight="56dp"
+                            android:gravity="center_vertical"
+                            android:background="?attr/selectableItemBackground"
+                            android:clickable="true"
+                            android:focusable="true"
+                            android:paddingTop="8dp"
+                            android:paddingBottom="8dp">
+                            <TextView style="@style/VD.Title" android:text="恢复默认词典"/>
+                            <TextView style="@style/VD.Support" android:text="清除导入，回到内置词典"/>
+                        </LinearLayout>
                     </LinearLayout>
                 </com.google.android.material.card.MaterialCardView>
 
@@ -140,10 +196,27 @@
                         android:paddingRight="16dp"
                         android:paddingTop="4dp"
                         android:paddingBottom="4dp">
-                        <com.google.android.material.materialswitch.MaterialSwitch
-                            android:id="@+id/sw_no_music"
-                            style="@style/VD.Switch"
-                            android:text="禁用背景音乐"/>
+                        <LinearLayout
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:orientation="horizontal"
+                            android:gravity="center_vertical"
+                            android:minHeight="56dp">
+                            <LinearLayout
+                                android:layout_width="0dp"
+                                android:layout_height="wrap_content"
+                                android:layout_weight="1"
+                                android:orientation="vertical"
+                                android:paddingTop="8dp"
+                                android:paddingBottom="8dp">
+                                <TextView style="@style/VD.Title" android:text="禁用背景音乐"/>
+                                <TextView style="@style/VD.Support" android:text="未连接时不再自动播放"/>
+                            </LinearLayout>
+                            <com.google.android.material.materialswitch.MaterialSwitch
+                                android:id="@+id/sw_no_music"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"/>
+                        </LinearLayout>
                         <LinearLayout
                             android:id="@+id/row_no_perf"
                             android:layout_width="match_parent"
@@ -194,17 +267,34 @@
                                 android:paddingTop="8dp"
                                 android:paddingBottom="8dp">
                                 <TextView style="@style/VD.Title" android:text="扩展码率范围"/>
-                                <TextView style="@style/VD.Support" android:text="长按可设置倍数"/>
+                                <TextView style="@style/VD.Support" android:text="长按设置倍率 (1-3)"/>
                             </LinearLayout>
                             <com.google.android.material.materialswitch.MaterialSwitch
                                 android:id="@+id/sw_extend"
                                 android:layout_width="wrap_content"
                                 android:layout_height="wrap_content"/>
                         </LinearLayout>
-                        <com.google.android.material.materialswitch.MaterialSwitch
-                            android:id="@+id/sw_unlock"
-                            style="@style/VD.Switch"
-                            android:text="解除自动测速码率限制"/>
+                        <LinearLayout
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:orientation="horizontal"
+                            android:gravity="center_vertical"
+                            android:minHeight="56dp">
+                            <LinearLayout
+                                android:layout_width="0dp"
+                                android:layout_height="wrap_content"
+                                android:layout_weight="1"
+                                android:orientation="vertical"
+                                android:paddingTop="8dp"
+                                android:paddingBottom="8dp">
+                                <TextView style="@style/VD.Title" android:text="解除自动测速码率限制"/>
+                                <TextView style="@style/VD.Support" android:text="跳过测速带宽上限"/>
+                            </LinearLayout>
+                            <com.google.android.material.materialswitch.MaterialSwitch
+                                android:id="@+id/sw_unlock"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"/>
+                        </LinearLayout>
                     </LinearLayout>
                 </com.google.android.material.card.MaterialCardView>
             </LinearLayout>

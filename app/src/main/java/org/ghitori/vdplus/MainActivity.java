@@ -50,8 +50,7 @@ public class MainActivity extends AppCompatActivity {
     private static final String K_SCALE = "bitrate_scale";
     private static final String K_UNLOCK = "bitrate_unlock";
 
-    // XposedServiceHelper 的 listener 是全局静态的, 必须用单例, 否则 Activity 重建后
-    // 绑定回调会送到旧实例, 新实例误报未激活且写不进 RemotePreferences。
+    // listener 为全局静态, 必须用单例, 否则 Activity 重建后回调会送到旧实例
     private static volatile XposedService sService = null;
     private static MainActivity sCurrent = null;
     private static boolean sRegistered = false;
@@ -67,7 +66,8 @@ public class MainActivity extends AppCompatActivity {
     private View pageHome, pageOptions;
     private MaterialCardView homeStatus;
     private ImageView homeStatusIcon;
-    private TextView homeStatusText, homeStatusSub, rowImport, rowRestore;
+    private TextView homeStatusText, homeStatusSub;
+    private View rowImport, rowRestore;
     private LinearLayout homeInfoSystem, homeInfoDict;
     private MaterialSwitch swUseDict, swNoMusic, swNoPerf, swExtend, swUnlock;
 
@@ -166,9 +166,8 @@ public class MainActivity extends AppCompatActivity {
         homeStatusText.setText(active ? "已激活" : "未激活");
         homeStatusText.setTextColor(on);
         homeStatusSub.setTextColor(on);
-        homeStatusSub.setText(active
-                ? "汉化与增强生效中"
-                : "请在 LSPosed 中启用模块，并重启 Virtual Desktop");
+        homeStatusSub.setText(active ? "" : "请在 LSPosed 中启用模块，并重启 Virtual Desktop");
+        homeStatusSub.setVisibility(active ? View.GONE : View.VISIBLE);
 
         SharedPreferences p = getSharedPreferences(PREFS, MODE_PRIVATE);
         int imported = Math.max(countDict(p.getString(K_IMPORTED, null)), 0);

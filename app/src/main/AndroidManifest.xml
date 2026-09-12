@@ -10,7 +10,7 @@
       android:theme="@style/Theme.VDPlus">
     <provider
         android:name="io.github.libxposed.service.XposedProvider"
-        android:authorities="org.ghitori.vdplus.XposedService"
+        android:authorities="com.ghitori.vdplus.XposedService"
         android:exported="true" />
     <activity
         android:name=".MainActivity"

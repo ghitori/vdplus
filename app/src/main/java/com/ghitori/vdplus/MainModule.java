@@ -1,4 +1,4 @@
-package org.ghitori.vdplus;
+package com.ghitori.vdplus;
 
 import android.content.SharedPreferences;
 import android.content.pm.ApplicationInfo;

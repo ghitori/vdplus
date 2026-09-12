@@ -783,19 +783,19 @@ NativeOnModuleLoaded native_init(const NativeAPIEntries* entries){
 }
 
 // ---- JNI ----
-extern "C" JNIEXPORT void JNICALL Java_org_ghitori_vdplus_MainModule_nativeInit(JNIEnv* env, jobject thiz){
+extern "C" JNIEXPORT void JNICALL Java_com_ghitori_vdplus_MainModule_nativeInit(JNIEnv* env, jobject thiz){
   if(!g_hook) LOGE("native hook unavailable (native_init not called)");
 }
-extern "C" JNIEXPORT void JNICALL Java_org_ghitori_vdplus_MainModule_nativeSetNoMusic(JNIEnv* env, jobject thiz, jboolean disable){
+extern "C" JNIEXPORT void JNICALL Java_com_ghitori_vdplus_MainModule_nativeSetNoMusic(JNIEnv* env, jobject thiz, jboolean disable){
   gNoMusic.store(disable==JNI_TRUE);
   LOGI("noMusic=%d",(int)gNoMusic.load());
 }
-extern "C" JNIEXPORT void JNICALL Java_org_ghitori_vdplus_MainModule_nativeSetQuality(JNIEnv* env, jobject thiz, jboolean enable, jint mask){
+extern "C" JNIEXPORT void JNICALL Java_com_ghitori_vdplus_MainModule_nativeSetQuality(JNIEnv* env, jobject thiz, jboolean enable, jint mask){
   gQualitySound.store(enable==JNI_TRUE);
   gQualityMask.store((int)mask & 0x7F);
   LOGI("quality enable=%d mask=%d",(int)gQualitySound.load(),gQualityMask.load());
 }
-extern "C" JNIEXPORT void JNICALL Java_org_ghitori_vdplus_MainModule_nativeSetBitrate(JNIEnv* env, jobject thiz, jboolean extend, jboolean unlock, jfloat scale){
+extern "C" JNIEXPORT void JNICALL Java_com_ghitori_vdplus_MainModule_nativeSetBitrate(JNIEnv* env, jobject thiz, jboolean extend, jboolean unlock, jfloat scale){
   float s=scale;
   if(!(s>=1.0f)) s=1.0f;   // 同时处理 NaN
   if(s>3.0f) s=3.0f;
@@ -804,11 +804,11 @@ extern "C" JNIEXPORT void JNICALL Java_org_ghitori_vdplus_MainModule_nativeSetBi
   gBitrateScale.store(s);
   LOGI("bitrate extend=%d unlock=%d scale=%.2f",(int)gBitrateExtend.load(),(int)gBitrateUnlock.load(),s);
 }
-extern "C" JNIEXPORT void JNICALL Java_org_ghitori_vdplus_MainModule_nativeSetForceLan(JNIEnv* env, jobject thiz, jboolean on){
+extern "C" JNIEXPORT void JNICALL Java_com_ghitori_vdplus_MainModule_nativeSetForceLan(JNIEnv* env, jobject thiz, jboolean on){
   gForceLan.store(on==JNI_TRUE);
   LOGI("forceLan=%d",(int)gForceLan.load());
 }
-extern "C" JNIEXPORT void JNICALL Java_org_ghitori_vdplus_MainModule_nativeSetDict(JNIEnv* env, jobject thiz, jobjectArray keys, jobjectArray vals){
+extern "C" JNIEXPORT void JNICALL Java_com_ghitori_vdplus_MainModule_nativeSetDict(JNIEnv* env, jobject thiz, jobjectArray keys, jobjectArray vals){
   jint n=env->GetArrayLength(keys);
   jint m=env->GetArrayLength(vals);
   for(jint i=0;i<n && i<m;i++){

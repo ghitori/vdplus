@@ -36,6 +36,7 @@ public class MainModule extends XposedModule {
     private static final String K_EXTEND = "bitrate_extend";
     private static final String K_SCALE = "bitrate_scale";
     private static final String K_UNLOCK = "bitrate_unlock";
+    private static final String K_FORCE_LAN = "force_lan";
 
     private static boolean sLoaded = false;
 
@@ -72,6 +73,7 @@ public class MainModule extends XposedModule {
             nativeSetNoMusic(readBool(K_NO_MUSIC, false));
             nativeSetQuality(readBool(K_QUALITY, false), readInt(K_QUALITY_MASK, 0x7F));
             nativeSetBitrate(readBool(K_EXTEND, false), readBool(K_UNLOCK, false), readFloat(K_SCALE, 2.0f));
+            nativeSetForceLan(readBool(K_FORCE_LAN, true));
             log(Log.INFO, TAG, "dict=" + dict.size() + " imported=" + useImported);
         } catch (Throwable t) {
             log(Log.ERROR, TAG, "init failed", t);
@@ -168,4 +170,5 @@ public class MainModule extends XposedModule {
     public native void nativeSetNoMusic(boolean disable);
     public native void nativeSetQuality(boolean enable, int mask);
     public native void nativeSetBitrate(boolean extend, boolean unlock, float scale);
+    public native void nativeSetForceLan(boolean enable);
 }

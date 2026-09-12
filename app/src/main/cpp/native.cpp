@@ -152,6 +152,14 @@ static MonoField gFieldDesktopLimit=nullptr, gFieldVRLimit=nullptr;
 // 增量 setter
 typedef void (*fnSetLimit1)(void*,float);
 static fnSetLimit1 origSetDesktopLimit=nullptr, origSetVRLimit=nullptr;
+// 强制局域网发现: 服务器不可用时仍合并本地(UDP 广播)发现的电脑
+static std::atomic<bool> gForceLan{true};
+static bool (*origGetHasValidIdentity)(void*)=nullptr;
+static void (*origSetHasValidIdentity)(void*,bool)=nullptr;
+static void (*origUserSettingsCtor)(void*)=nullptr;
+static MonoField  gFieldUserHasValidIdentity=nullptr;
+static void* gUserSettingsDefault=nullptr;            // UserSettings 单例(固定)
+static std::atomic<bool> gForceLanTried{false};
 
 static std::atomic<bool> gNoMusic{false};
 static std::atomic<bool> gMusicHooked{false};
@@ -560,6 +568,41 @@ static bool installBitrateHooks(){
   LOGI("bitrate hooks=%d scale=%.2f",ok,rateMul());
   return hx && us && ms;
 }
+// ---- 强制局域网发现 ----
+// 强制 HasValidIdentity=true, 使服务器不可达时仍合并本地发现的电脑
+static void captureUserSettings(void* self){
+  if(!self) return;
+  if(!gUserSettingsDefault){ gUserSettingsDefault=self; if(pGchandleNew) pGchandleNew((MonoObject*)self,1); }
+  if(gFieldUserHasValidIdentity && pFieldSetValue){ bool t=true; pFieldSetValue(self,gFieldUserHasValidIdentity,&t); }
+}
+static void hookUserSettingsCtor(void* self){
+  captureUserSettings(self);
+  if(origUserSettingsCtor) origUserSettingsCtor(self);
+}
+static bool hookGetHasValidIdentity(void* self){
+  if(!gForceLan.load()) return origGetHasValidIdentity ? origGetHasValidIdentity(self) : false;
+  captureUserSettings(self);
+  return true;
+}
+static void hookSetHasValidIdentity(void* self,bool v){
+  if(gForceLan.load()){ captureUserSettings(self); v=true; }
+  if(origSetHasValidIdentity) origSetHasValidIdentity(self,v);
+}
+static bool installForceLanHooks(){
+  if(!gForceLan.load()){ LOGI("forceLan off: hooks skipped"); return true; }
+  MonoClass* mus=getClass("VirtualDesktop.Mobile.UserSettings, VirtualDesktop.Mobile");
+  if(!mus){ LOGE("UserSettings class not found"); return false; }
+  if(pClassGetField) gFieldUserHasValidIdentity=pClassGetField(mus,"_hasValidIdentity");
+  void* a;
+  a=methodAddr(mus,"get_HasValidIdentity",0);
+  if(a && hook(a,(void*)hookGetHasValidIdentity,(void**)&origGetHasValidIdentity)==0) LOGI("hooked UserSettings::get_HasValidIdentity");
+  a=methodAddr(mus,"set_HasValidIdentity",1);
+  if(a && hook(a,(void*)hookSetHasValidIdentity,(void**)&origSetHasValidIdentity)==0) LOGI("hooked UserSettings::set_HasValidIdentity");
+  a=methodAddr(mus,".ctor",0);
+  if(a && hook(a,(void*)hookUserSettingsCtor,(void**)&origUserSettingsCtor)==0) LOGI("hooked UserSettings::.ctor");
+  LOGI("forceLan: identity field=%p",(void*)gFieldUserHasValidIdentity);
+  return true;
+}
 
 // ---- Serialize hook: 载入监控捕获 goodFont/goodMap ----
 static void hookSerialize(void* x0,void* x1,void* x2,void* x3){
@@ -602,6 +645,7 @@ static void doSetupImpl(){
   // 与字体无关的钩子尽早安装(不被字体块的提前 return 挡住); 类解析失败则下次再试
   if(!gQualitySoundTried.load() && installQualitySoundHooks()) gQualitySoundTried.store(true);
   if(!gBitrateTried.load() && installBitrateHooks()) gBitrateTried.store(true);
+  if(!gForceLanTried.load() && installForceLanHooks()) gForceLanTried.store(true);
   if(!gMusicHooked.load() && !gMusicTried.load()){
     gMusicTried.store(true);
     MonoClass* ms=getClass("VirtualDesktop.Mobile.MusicSystem, VirtualDesktop.Mobile");
@@ -759,6 +803,10 @@ extern "C" JNIEXPORT void JNICALL Java_org_ghitori_vdplus_MainModule_nativeSetBi
   gBitrateUnlock.store(unlock==JNI_TRUE);
   gBitrateScale.store(s);
   LOGI("bitrate extend=%d unlock=%d scale=%.2f",(int)gBitrateExtend.load(),(int)gBitrateUnlock.load(),s);
+}
+extern "C" JNIEXPORT void JNICALL Java_org_ghitori_vdplus_MainModule_nativeSetForceLan(JNIEnv* env, jobject thiz, jboolean on){
+  gForceLan.store(on==JNI_TRUE);
+  LOGI("forceLan=%d",(int)gForceLan.load());
 }
 extern "C" JNIEXPORT void JNICALL Java_org_ghitori_vdplus_MainModule_nativeSetDict(JNIEnv* env, jobject thiz, jobjectArray keys, jobjectArray vals){
   jint n=env->GetArrayLength(keys);

@@ -49,6 +49,7 @@ public class MainActivity extends AppCompatActivity {
     private static final String K_EXTEND = "bitrate_extend";
     private static final String K_SCALE = "bitrate_scale";
     private static final String K_UNLOCK = "bitrate_unlock";
+    private static final String K_FORCE_LAN = "force_lan";
 
     // listener 为全局静态, 必须用单例, 否则 Activity 重建后回调会送到旧实例
     private static volatile XposedService sService = null;
@@ -69,7 +70,7 @@ public class MainActivity extends AppCompatActivity {
     private TextView homeStatusText, homeStatusSub;
     private View rowImport, rowRestore;
     private LinearLayout homeInfoSystem, homeInfoDict;
-    private MaterialSwitch swUseDict, swNoMusic, swNoPerf, swExtend, swUnlock;
+    private MaterialSwitch swUseDict, swNoMusic, swNoPerf, swExtend, swUnlock, swForceLan;
 
     private static void ensureServiceRegistered() {
         if (sRegistered) return;
@@ -104,6 +105,7 @@ public class MainActivity extends AppCompatActivity {
         swNoPerf = findViewById(R.id.sw_no_perf);
         swExtend = findViewById(R.id.sw_extend);
         swUnlock = findViewById(R.id.sw_unlock);
+        swForceLan = findViewById(R.id.sw_force_lan);
 
         bottomNav.setOnItemSelectedListener(item -> {
             showPage(item.getItemId() == R.id.nav_options ? 1 : 0);
@@ -115,6 +117,7 @@ public class MainActivity extends AppCompatActivity {
         swNoPerf.setOnCheckedChangeListener((v, c) -> save(K_QUALITY, c));
         swExtend.setOnCheckedChangeListener((v, c) -> save(K_EXTEND, c));
         swUnlock.setOnCheckedChangeListener((v, c) -> save(K_UNLOCK, c));
+        swForceLan.setOnCheckedChangeListener((v, c) -> save(K_FORCE_LAN, c));
         swNoPerf.setOnLongClickListener(v -> { showSoundDialog(); return true; });
         swExtend.setOnLongClickListener(v -> { showScaleDialog(); return true; });
         findViewById(R.id.row_no_perf).setOnLongClickListener(v -> { showSoundDialog(); return true; });
@@ -191,6 +194,7 @@ public class MainActivity extends AppCompatActivity {
         swNoPerf.setChecked(p.getBoolean(K_QUALITY, false));
         swExtend.setChecked(p.getBoolean(K_EXTEND, false));
         swUnlock.setChecked(p.getBoolean(K_UNLOCK, false));
+        swForceLan.setChecked(p.getBoolean(K_FORCE_LAN, true));
         binding = false;
     }
 

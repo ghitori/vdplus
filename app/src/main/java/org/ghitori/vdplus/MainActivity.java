@@ -297,8 +297,8 @@ public class MainActivity extends AppCompatActivity {
                 .setOnDismissListener(dd -> {
                     float s;
                     try { s = Float.parseFloat(in.getText().toString().trim()); } catch (Throwable t) { s = 2.0f; }
-                    if (s < 0f) s = 0f;
-                    if (s > 5f) s = 5f;
+                    if (s < 1f) s = 1f;
+                    if (s > 3f) s = 3f;
                     save(K_SCALE, s);
                 })
                 .show();

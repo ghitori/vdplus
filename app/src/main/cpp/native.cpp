@@ -753,8 +753,8 @@ extern "C" JNIEXPORT void JNICALL Java_org_ghitori_vdplus_MainModule_nativeSetQu
 }
 extern "C" JNIEXPORT void JNICALL Java_org_ghitori_vdplus_MainModule_nativeSetBitrate(JNIEnv* env, jobject thiz, jboolean extend, jboolean unlock, jfloat scale){
   float s=scale;
-  if(!(s>=0.0f)) s=0.0f;   // 同时处理 NaN
-  if(s>5.0f) s=5.0f;
+  if(!(s>=1.0f)) s=1.0f;   // 同时处理 NaN
+  if(s>3.0f) s=3.0f;
   gBitrateExtend.store(extend==JNI_TRUE);
   gBitrateUnlock.store(unlock==JNI_TRUE);
   gBitrateScale.store(s);

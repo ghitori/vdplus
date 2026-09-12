@@ -16,6 +16,7 @@
 #include <dlfcn.h>
 #include <android/log.h>
 #include <jni.h>
+#include <math.h>
 
 #define TAG "VDPlus"
 static void vlog(int prio,const char* fmt,...){
@@ -117,44 +118,40 @@ static fnJitInit   origJitInit=nullptr;
 static fnRunMain   origRunMain=nullptr;
 static fnMusicPlay origMusicPlay=nullptr;
 
-// 码率: 头显把归一化档位(Limit)发给 PC, PC 用自身 min/max 表算实际码率
-typedef int32_t (*fnCalcBitrate2)(int32_t,float);                    // GetDesktopBitrate(HmdType,float)
-typedef int32_t (*fnCalcBitrate4)(int32_t,float,int32_t,int32_t);    // GetVRBitrate(HmdType,float,VideoCodec,bool)
-typedef MonoString* (*fnBitrateStr2)(int32_t,float);                 // GetDesktopBitrateString(HmdType,float)
-typedef MonoString* (*fnBitrateStr4)(int32_t,float,int32_t,int32_t); // GetVRBitrateString(...)
-typedef void (*fnSetLimit1)(void*,float);                            // set_DesktopBitrateLimit / set_VRBitrateLimit
-static fnCalcBitrate2 origDesktopBitrate=nullptr;
-static fnCalcBitrate4 origVRBitrate=nullptr;
-static fnBitrateStr2  origDesktopBitrateString=nullptr;
-static fnBitrateStr4  origVRBitrateString=nullptr;
-static fnSetLimit1    origSetDesktopLimit=nullptr;
-static fnSetLimit1    origSetVRLimit=nullptr;
-typedef void (*fnLimitChangedUI)(void*,void*,void*);  // SettingsTab/StreamingTab 的 On*BitrateLimitChanged(UI 同步)
-typedef void (*fnSetLimit)(void*,float);              // LimitSlider::set_Limit
-static fnLimitChangedUI origSettingsDesktopLimitChanged=nullptr;
-static fnLimitChangedUI origStreamingVRLimitChanged=nullptr;
-static fnSetLimit       origLimitSliderSetLimit=nullptr;
-
-// 精确倍率补偿所需: min/max + 启动时捕获的 HmdType/VideoCodec/Foveated
+// 码率: 本地放大内部上限表(GetMax*Bitrate), 发送端按 k=(max*s-min)/(max-min) 变换归一化档位
 typedef int32_t (*fnMinMax1)(int32_t);
 typedef int32_t (*fnMinMax3)(int32_t,int32_t,int32_t);
-static fnMinMax1 fnMinDesk=nullptr, fnMaxDesk=nullptr, fnMinVR=nullptr;
-static fnMinMax3 fnMaxVR=nullptr;
-static std::atomic<int32_t> gHmd{-1}, gCodec{-1}, gFov{-1};
+static fnMinMax1 fnMinDesk=nullptr, fnMinVR=nullptr;          // 原始 min(仅用于算 k)
+static fnMinMax1 origMaxDesk=nullptr;                         // 原始 max(desktop 不 hook, 仅取原值)
+static fnMinMax3 origMaxVR=nullptr;                           // 原始 max(VR hook 备份)
+typedef int32_t (*fnCalcBitrate2)(int32_t,float);
+typedef MonoString* (*fnBitrateStr2)(int32_t,float);
+static fnCalcBitrate2 origDesktopBitrate=nullptr;
+static fnBitrateStr2  origDesktopBitrateString=nullptr;
+static std::atomic<int> gDeskMode{0};   // 0=未知 1=表 2=外层 (仅 desktop 有回退)
+static thread_local bool tProbeHit=false;
+static thread_local bool tInStrDesktop=false;
+// 显示软上限修正(desktop 外层模式)
+static void (*origSettingsMeasured)(void*)=nullptr;
+static void (*origLimitSliderSetLimit)(void*,float)=nullptr;
+static thread_local bool tDeskLimitCtx=false;
 typedef void (*fnSetInt1)(void*,int32_t);
 static fnSetInt1 origSetHmdType=nullptr, origSetActiveCodec=nullptr, origSetFoveated=nullptr;
 static fnSetInt1 origSetMeasuredBandwidth=nullptr;
 static void (*origSendReload)(void*)=nullptr;
-static std::atomic<bool> gSpeedtestDone{false};   // 测速完成前不下发放大值(避免连接期改动导致失败)
-
-// 整包序列化(发送设置到 PC)钩子
+static std::atomic<bool> gSpeedtestDone{false};
+static std::atomic<int32_t> gHmd{-1}, gCodec{-1}, gFov{-1};
+static void* gMobileSettings=nullptr;                         // SharedMobileSettings 实例(整包重发用)
+// 整包序列化
 typedef void (*fnSerializerObject)(void*,void*);
 static fnSerializerObject origSerializerObject=nullptr;
 static MonoClass* gClsUserSettings=nullptr;
-static void* gUserSettingsPin=nullptr;                 // SharedUserSettings 实例(固定), 用于测速后补发档位
+static void* gUserSettingsPin=nullptr;
 static void (*origUserSendReload)(void*)=nullptr;
-static MonoField  gFieldDesktopLimit=nullptr;
-static MonoField  gFieldVRLimit=nullptr;
+static MonoField gFieldDesktopLimit=nullptr, gFieldVRLimit=nullptr;
+// 增量 setter
+typedef void (*fnSetLimit1)(void*,float);
+static fnSetLimit1 origSetDesktopLimit=nullptr, origSetVRLimit=nullptr;
 
 static std::atomic<bool> gNoMusic{false};
 static std::atomic<bool> gMusicHooked{false};
@@ -382,157 +379,121 @@ static bool installQualitySoundHooks(){
   return true;
 }
 
-// ================= 码率解锁 =================
-// PC 按 bps=min+(max-min)*t 计算; 下发档位反解为把目标范围放大 s 倍后的档位, 头显本地保留原值
-static float scaleFrac(int32_t mn,int32_t mx,float t,float s){
-  if(mx<=mn || s<=1.0f) return t;
-  double k=((double)mx*(double)s-(double)mn)/((double)mx-(double)mn);
-  return (float)((double)t*k);
-}
-static float compensateDesktop(int32_t hmd,float t){
-  if(t<0.0f) t=0.0f; else if(t>1.0f) t=1.0f;   // 档位恒在 [0,1]
-  if(!gBitrateExtend.load() || !gSpeedtestDone.load()) return t;   // 测速前保持原值
+// ================= 码率: 优先表 hook(直接改), 探针失败自动回退外层 =================
+// 表 hook 可能被 JIT 内联绕过; 首次调用探针判断: 命中→表, 未命中→外层入参×k
+// 发送: SerializerObject 整包序列化时档位 ×k; setter 存基准值并(测速后)整包重发
+static float rateMul(){
   float s=gBitrateScale.load();
-  if(s<=1.0f) return t;
-  if(hmd<0 || !fnMinDesk || !fnMaxDesk) return t*s;   // 上下文未知: 退化为直接缩放
-  return scaleFrac(fnMinDesk(hmd),fnMaxDesk(hmd),t,s);
+  return (gBitrateExtend.load() && s>0.0f) ? s : 1.0f;
 }
-static float compensateVR(int32_t hmd,float t,int32_t codec,int32_t fov){
-  if(t<0.0f) t=0.0f; else if(t>1.0f) t=1.0f;   // 档位恒在 [0,1]
-  if(!gBitrateExtend.load() || !gSpeedtestDone.load()) return t;   // 测速前保持原值
-  float s=gBitrateScale.load();
-  if(s<=1.0f) return t;
-  if(hmd<0 || codec<0 || !fnMinVR || !fnMaxVR) return t*s;
-  return scaleFrac(fnMinVR(hmd),fnMaxVR(hmd,codec,fov),t,s);
+static int32_t scaleMax(int32_t v){ return (int32_t)((double)v*(double)rateMul()); }
+static float kCalc(float mn,float mx){
+  float s=rateMul(); if(s<=1.0f) return 1.0f;
+  if(mx<=mn) return s;
+  return (float)((mx*s-mn)/(mx-mn));
 }
-// ---- 启动时捕获补偿所需上下文 ----
-static void hookCaptureHmd(void* self,int32_t v){ gHmd.store(v); if(origSetHmdType) origSetHmdType(self,v); }
-static void hookCaptureCodec(void* self,int32_t v){ gCodec.store(v); if(origSetActiveCodec) origSetActiveCodec(self,v); }
-static void hookCaptureFov(void* self,int32_t v){ gFov.store(v); if(origSetFoveated) origSetFoveated(self,v); }
-
-// ---- 头显本地 bps 放大(内部状态/性能浮层) ----
-static thread_local bool tInSetDesktop=false, tInSetVR=false;   // setter 内档位已是补偿值
-static thread_local bool tInStrDesktop=false, tInStrVR=false;   // 字符串 hook 内同理
-static thread_local bool tDeskLimitCtx=false, tVRLimitCtx=false; // 正在计算软上限标记
-static void (*origSettingsMeasured)(void*)=nullptr;
-static void (*origUpdateVRLimit)(void*)=nullptr;
-static void hookSettingsMeasured(void* self){ tDeskLimitCtx=true; if(origSettingsMeasured) origSettingsMeasured(self); tDeskLimitCtx=false; }
-static void hookUpdateVRLimit(void* self){ tVRLimitCtx=true; if(origUpdateVRLimit) origUpdateVRLimit(self); tVRLimitCtx=false; }
+static float kDesktopFor(int32_t hmd){
+  if(hmd<0 || !fnMinDesk || !origMaxDesk) return rateMul();
+  return kCalc((float)fnMinDesk(hmd),(float)origMaxDesk(hmd));
+}
+static float kVRFor(int32_t hmd,int32_t codec,int32_t fov){
+  if(hmd<0 || codec<0 || !fnMinVR || !origMaxVR) return rateMul();
+  return kCalc((float)fnMinVR(hmd),(float)origMaxVR(hmd,codec,fov));
+}
+static float kDesktop(){ return kDesktopFor(gHmd.load()); }
+static float kVR(){ return kVRFor(gHmd.load(),gCodec.load(),gFov.load()); }
+// 表 hook: 外层模式时不放大; 否则放大并置探针
+static int32_t hookMaxDesk(int32_t hmd){
+  if(gDeskMode.load()==2) return origMaxDesk?origMaxDesk(hmd):0;
+  tProbeHit=true;
+  return scaleMax(origMaxDesk?origMaxDesk(hmd):0);
+}
+static int32_t hookMaxVR(int32_t hmd,int32_t codec,int32_t fov){
+  return scaleMax(origMaxVR?origMaxVR(hmd,codec,fov):0);
+}
+// 外层 Get*Bitrate: 首次探针; 表可用则透传, 否则入参×k
 static int32_t hookDesktopBitrate(int32_t hmd,float t){
-  gHmd.store(hmd);
   if(!origDesktopBitrate) return 0;
-  return (tInSetDesktop||tInStrDesktop) ? origDesktopBitrate(hmd,t)
-                                        : origDesktopBitrate(hmd,compensateDesktop(hmd,t));
+  if(tInStrDesktop) return origDesktopBitrate(hmd,t);
+  int m=gDeskMode.load();
+  if(m==1) return origDesktopBitrate(hmd,t);
+  if(m==2) return origDesktopBitrate(hmd,t*kDesktopFor(hmd));
+  tProbeHit=false;
+  int32_t r=origDesktopBitrate(hmd,t);
+  if(tProbeHit){ gDeskMode.store(1); LOGI("bitrate desktop: table hook ACTIVE (direct)"); return r; }
+  gDeskMode.store(2); LOGI("bitrate desktop: table inlined -> outer hook");
+  return origDesktopBitrate(hmd,t*kDesktopFor(hmd));
 }
-static int32_t hookVRBitrate(int32_t hmd,float t,int32_t codec,int32_t fov){
-  gHmd.store(hmd); gCodec.store(codec); gFov.store(fov);
-  if(!origVRBitrate) return 0;
-  return (tInSetVR||tInStrVR) ? origVRBitrate(hmd,t,codec,fov)
-                              : origVRBitrate(hmd,compensateVR(hmd,t,codec,fov),codec,fov);
-}
-// ---- 显示: 用补偿档位格式化(即使 GetDesktopBitrate 被内联也生效) ----
 static MonoString* hookDesktopBitrateString(int32_t hmd,float t){
-  gHmd.store(hmd);
   if(!origDesktopBitrateString) return nullptr;
-  if(!gBitrateExtend.load()) return origDesktopBitrateString(hmd,t);
-  tInStrDesktop=true;
-  MonoString* r=origDesktopBitrateString(hmd,compensateDesktop(hmd,t));
-  tInStrDesktop=false;
+  if(gDeskMode.load()!=2) return origDesktopBitrateString(hmd,t);
+  tInStrDesktop=true; MonoString* r=origDesktopBitrateString(hmd,t*kDesktopFor(hmd)); tInStrDesktop=false;
   return r;
 }
-static MonoString* hookVRBitrateString(int32_t hmd,float t,int32_t codec,int32_t fov){
-  gHmd.store(hmd); gCodec.store(codec); gFov.store(fov);
-  if(!origVRBitrateString) return nullptr;
-  if(!gBitrateExtend.load()) return origVRBitrateString(hmd,t,codec,fov);
-  tInStrVR=true;
-  MonoString* r=origVRBitrateString(hmd,compensateVR(hmd,t,codec,fov),codec,fov);
-  tInStrVR=false;
-  return r;
+// ---- desktop 回退模式: 显示端会对档位 ×k, 这里在"测速软上限"计算期间先 /k 还原 ----
+static void hookSettingsMeasured(void* self){ tDeskLimitCtx=true; if(origSettingsMeasured) origSettingsMeasured(self); tDeskLimitCtx=false; }
+static void hookLimitSliderSetLimit(void* self,float v){
+  if(gDeskMode.load()==2 && tDeskLimitCtx){
+    float k=kDesktop(); if(k>1.0f) v=v/k;
+  }
+  if(origLimitSliderSetLimit) origLimitSliderSetLimit(self,v);
 }
 
-// ---- 发往 PC(增量属性变更): 放大档位后立即恢复头显本地原值 ----
+// ---- 上下文捕获 + 固定 SharedMobileSettings 实例 ----
+static void captureMobile(void* self){ if(self && !gMobileSettings){ if(pGchandleNew) pGchandleNew((MonoObject*)self,1); gMobileSettings=self; } }
+static void hookCaptureHmd(void* self,int32_t v){ gHmd.store(v); captureMobile(self); if(origSetHmdType) origSetHmdType(self,v); }
+static void hookCaptureCodec(void* self,int32_t v){ gCodec.store(v); captureMobile(self); if(origSetActiveCodec) origSetActiveCodec(self,v); }
+static void hookCaptureFov(void* self,int32_t v){ gFov.store(v); captureMobile(self); if(origSetFoveated) origSetFoveated(self,v); }
+
+// ---- 增量: 只写基准值(本地按放大表自然计算), 随后整包重发(发送端乘 k) ----
 static void hookSetDesktopLimit(void* self,float v){
   if(!origSetDesktopLimit) return;
-  float s=gBitrateScale.load();
-  if(v<0.0f) v=0.0f; else if(v>1.0f) v=1.0f;
-  if(!gBitrateExtend.load() || s<=1.0f){ origSetDesktopLimit(self,v); return; }
+  if(!gUserSettingsPin && pGchandleNew && pGchandleGet){ MonoGCHandle gh=pGchandleNew((MonoObject*)self,1); if(gh) gUserSettingsPin=pGchandleGet(gh); }
+  if(v!=v) v=0.0f;
+  if(v<0.0f) v=0.0f;
   MonoGCHandle h=0; void* pin=self;
   if(pGchandleNew){ h=pGchandleNew((MonoObject*)self,1); if(pGchandleGet) pin=pGchandleGet(h); }
-  float ts=compensateDesktop(gHmd.load(),v);
-  tInSetDesktop=true; origSetDesktopLimit(pin,ts); tInSetDesktop=false;
-  if(gFieldDesktopLimit && pFieldSetValue) pFieldSetValue(pin,gFieldDesktopLimit,&v);
+  origSetDesktopLimit(pin,v);
+  if(rateMul()>1.0f && gSpeedtestDone.load()){   // 测速前不整包重发(避免 meas=0 的坏包)
+    if(origUserSendReload) origUserSendReload(pin);
+    if(gMobileSettings && origSendReload) origSendReload(gMobileSettings);
+  }
   if(h && pGchandleFree) pGchandleFree(h);
 }
 static void hookSetVRLimit(void* self,float v){
   if(!origSetVRLimit) return;
-  float s=gBitrateScale.load();
-  if(v<0.0f) v=0.0f; else if(v>1.0f) v=1.0f;
-  if(!gBitrateExtend.load() || s<=1.0f){ origSetVRLimit(self,v); return; }
+  if(!gUserSettingsPin && pGchandleNew && pGchandleGet){ MonoGCHandle gh=pGchandleNew((MonoObject*)self,1); if(gh) gUserSettingsPin=pGchandleGet(gh); }
+  if(v!=v) v=0.0f;
+  if(v<0.0f) v=0.0f;
   MonoGCHandle h=0; void* pin=self;
   if(pGchandleNew){ h=pGchandleNew((MonoObject*)self,1); if(pGchandleGet) pin=pGchandleGet(h); }
-  float ts=compensateVR(gHmd.load(),v,gCodec.load(),gFov.load());
-  tInSetVR=true; origSetVRLimit(pin,ts); tInSetVR=false;
-  if(gFieldVRLimit && pFieldSetValue) pFieldSetValue(pin,gFieldVRLimit,&v);
+  origSetVRLimit(pin,v);
+  if(rateMul()>1.0f && gSpeedtestDone.load()){   // 测速前不整包重发(避免 meas=0 的坏包)
+    if(origUserSendReload) origUserSendReload(pin);
+    if(gMobileSettings && origSendReload) origSendReload(gMobileSettings);
+  }
   if(h && pGchandleFree) pGchandleFree(h);
 }
-// 设置变更事件会把滑块 Value 同步为"当前档位"; setter 期间跳过, 避免滑块被顶到补偿值
-static void hookSettingsDesktopLimitChanged(void* self,void* sender,void* e){
-  if(!tInSetDesktop && origSettingsDesktopLimitChanged) origSettingsDesktopLimitChanged(self,sender,e);
-}
-static void hookStreamingVRLimitChanged(void* self,void* sender,void* e){
-  if(!tInSetVR && origStreamingVRLimitChanged) origStreamingVRLimitChanged(self,sender,e);
-}
-// ---- LimitSlider: unlock 时顶到 Maximum; extend 时把标记档位重映射到放大后的范围 ----
-static void hookLimitSliderSetLimit(void* self,float v){
-  if(gBitrateUnlock.load()){
-    v=1e9f;
-  } else if(gBitrateExtend.load() && gBitrateScale.load()>1.0f){
-    int32_t mn=-1,mx=-1;
-    if(tVRLimitCtx){ mn=fnMinVR?fnMinVR(gHmd.load()):-1; mx=(fnMaxVR&&gHmd.load()>=0&&gCodec.load()>=0)?fnMaxVR(gHmd.load(),gCodec.load(),gFov.load()):-1; }
-    else if(tDeskLimitCtx){ mn=fnMinDesk?fnMinDesk(gHmd.load()):-1; mx=fnMaxDesk?fnMaxDesk(gHmd.load()):-1; }
-    if(mn>=0 && mx>mn){
-      double denom=(double)mx*(double)gBitrateScale.load()-(double)mn;
-      v=(float)((double)v*((double)mx-(double)mn)/denom);
-    }
-  }
-  if(origLimitSliderSetLimit) origLimitSliderSetLimit(self,v);
-}
-// ---- 解除测速上限: 直接把上报带宽顶到 1.5Gbps ----
-static void hookSetMeasuredBandwidth(void* self,int32_t v){
-  bool firstReal=(v>0 && !gSpeedtestDone.load());
-  int32_t out=v;
-  // 测速完成前原样放行(不改连接期参数); 完成后才顶到 1.5Gbps 解除上限
-  if(gBitrateUnlock.load() && (gSpeedtestDone.load() || firstReal)) out=1500000000;
-  if(firstReal) gSpeedtestDone.store(true);
-  if(origSetMeasuredBandwidth) origSetMeasuredBandwidth(self,out);   // 内部按放大档位重算 bps
-  // 测速完成后重新整包发送(连接时那份 bps 还是 0)
-  if(firstReal){
-    if(origSendReload) origSendReload(self);
-    if(origUserSendReload && gUserSettingsPin) origUserSendReload(gUserSettingsPin);
-  }
-}
-// ---- 发往 PC(整包): 连接时 SendSettingsReload 直接序列化字段, 绕过 setter ----
+
+// ---- 整包: 序列化前把档位 ×k, 序列化后还原(不触发本地重算) ----
 static void hookSerializerObject(void* obj,void* writer){
   if(!origSerializerObject){ return; }
-  // 首次序列化 SharedUserSettings 时固定实例, 供测速后补发档位
   if(!gUserSettingsPin && obj && pObjGetClass && gClsUserSettings && pGchandleNew
      && pObjGetClass((MonoObject*)obj)==gClsUserSettings){
     MonoGCHandle gh=pGchandleNew((MonoObject*)obj,1);
     if(gh && pGchandleGet) gUserSettingsPin=pGchandleGet(gh);
   }
-  float s=gBitrateScale.load();
-  if(!gBitrateExtend.load() || s<=1.0f || !obj || !gClsUserSettings || !gFieldDesktopLimit || !gFieldVRLimit
+  if(rateMul()<=1.0f || !obj || !gClsUserSettings || !gFieldDesktopLimit || !gFieldVRLimit
      || !pFieldGetValue || !pFieldSetValue || !pObjGetClass
      || pObjGetClass((MonoObject*)obj)!=gClsUserSettings){
     origSerializerObject(obj,writer); return;
   }
-  // 发往 PC 的档位用放大值, 头显本地保持原值
   MonoGCHandle h=0; void* pin=obj;
   if(pGchandleNew){ h=pGchandleNew((MonoObject*)obj,1); if(pGchandleGet) pin=pGchandleGet(h); }
   float d0=0,v0=0;
   pFieldGetValue(pin,gFieldDesktopLimit,&d0);
   pFieldGetValue(pin,gFieldVRLimit,&v0);
-  float d1=compensateDesktop(gHmd.load(),d0), v1=compensateVR(gHmd.load(),v0,gCodec.load(),gFov.load());
+  float d1=d0*kDesktop(), v1=v0*kVR();
   pFieldSetValue(pin,gFieldDesktopLimit,&d1);
   pFieldSetValue(pin,gFieldVRLimit,&v1);
   origSerializerObject(pin,writer);
@@ -540,91 +501,64 @@ static void hookSerializerObject(void* obj,void* writer){
   pFieldSetValue(pin,gFieldVRLimit,&v0);
   if(h && pGchandleFree) pGchandleFree(h);
 }
+// ---- unlock: 顶到 int32 上限(10G 溢出 int32) ----
+static void hookSetMeasuredBandwidth(void* self,int32_t v){
+  captureMobile(self);
+  bool firstReal=(v>0 && !gSpeedtestDone.load());
+  int32_t out=v;
+  if(gBitrateUnlock.load() && (gSpeedtestDone.load() || firstReal)) out=2147483647;
+  if(firstReal) gSpeedtestDone.store(true);
+  if(origSetMeasuredBandwidth) origSetMeasuredBandwidth(self,out);
+  if(firstReal){
+    if(origSendReload) origSendReload(self);
+    if(origUserSendReload && gUserSettingsPin) origUserSendReload(gUserSettingsPin);
+  }
+}
 
 static bool installBitrateHooks(){
   int ok=0;
   MonoClass* hx=getClass("Xenko.VR.HmdResolutionTypeExtensions, VirtualDesktop.Mobile.Shared");
   if(hx){
     fnMinDesk=(fnMinMax1)methodAddr(hx,"GetMinDesktopBitrate",1);
-    fnMaxDesk=(fnMinMax1)methodAddr(hx,"GetMaxDesktopBitrate",1);
     fnMinVR =(fnMinMax1)methodAddr(hx,"GetMinVRBitrate",1);
-    fnMaxVR =(fnMinMax3)methodAddr(hx,"GetMaxVRBitrate",3);
     void* a;
+    a=methodAddr(hx,"GetMaxDesktopBitrate",1);    if(a && hook(a,(void*)hookMaxDesk,(void**)&origMaxDesk)==0) ok++;
+    a=methodAddr(hx,"GetMaxVRBitrate",3);         if(a && hook(a,(void*)hookMaxVR,(void**)&origMaxVR)==0) ok++;
     a=methodAddr(hx,"GetDesktopBitrate",2);       if(a && hook(a,(void*)hookDesktopBitrate,(void**)&origDesktopBitrate)==0) ok++;
-    a=methodAddr(hx,"GetVRBitrate",4);            if(a && hook(a,(void*)hookVRBitrate,(void**)&origVRBitrate)==0) ok++;
     a=methodAddr(hx,"GetDesktopBitrateString",2); if(a && hook(a,(void*)hookDesktopBitrateString,(void**)&origDesktopBitrateString)==0) ok++;
-    a=methodAddr(hx,"GetVRBitrateString",4);      if(a && hook(a,(void*)hookVRBitrateString,(void**)&origVRBitrateString)==0) ok++;
   } else LOGE("HmdResolutionTypeExtensions class not found");
-
   MonoClass* us=getClass("VirtualDesktop.Mobile.SharedUserSettings, VirtualDesktop.Mobile.Shared");
   if(us){
-    if(pClassGetField){
-      gFieldDesktopLimit=pClassGetField(us,"_desktopBitrateLimit");
-      gFieldVRLimit=pClassGetField(us,"_vrBitrateLimit");
-    }
+    if(pClassGetField){ gFieldDesktopLimit=pClassGetField(us,"_desktopBitrateLimit"); gFieldVRLimit=pClassGetField(us,"_vrBitrateLimit"); }
     void* a;
     a=methodAddr(us,"set_DesktopBitrateLimit",1); if(a && hook(a,(void*)hookSetDesktopLimit,(void**)&origSetDesktopLimit)==0) ok++;
     a=methodAddr(us,"set_VRBitrateLimit",1);      if(a && hook(a,(void*)hookSetVRLimit,(void**)&origSetVRLimit)==0) ok++;
   } else LOGE("SharedUserSettings class not found");
   gClsUserSettings=us;
-  if(us && pClassGetParent){   // 与 SharedMobileSettings 同一泛型基类, 沿父类链找 SendSettingsReload
+  if(us && pClassGetParent){
     MonoClass* c=pClassGetParent(us);
-    for(int i=0;i<4 && c && !origUserSendReload;i++){
-      origUserSendReload=(void(*)(void*))methodAddr(c,"SendSettingsReload",0);
-      if(!origUserSendReload) c=pClassGetParent(c);
-    }
+    for(int i=0;i<4 && c && !origUserSendReload;i++){ origUserSendReload=(void(*)(void*))methodAddr(c,"SendSettingsReload",0); if(!origUserSendReload) c=pClassGetParent(c); }
   }
-
   MonoClass* ms=getClass("VirtualDesktop.Mobile.SharedMobileSettings, VirtualDesktop.Mobile.Shared");
   if(ms){
     void* a;
-    a=methodAddr(ms,"set_HmdType",1);            if(a && hook(a,(void*)hookCaptureHmd,(void**)&origSetHmdType)==0) ok++;
-    a=methodAddr(ms,"set_FoveatedStreaming",1);   if(a && hook(a,(void*)hookCaptureFov,(void**)&origSetFoveated)==0) ok++;
-    a=methodAddr(ms,"set_MeasuredBandwidth",1);   if(a && hook(a,(void*)hookSetMeasuredBandwidth,(void**)&origSetMeasuredBandwidth)==0) ok++;
+    a=methodAddr(ms,"set_HmdType",1);           if(a && hook(a,(void*)hookCaptureHmd,(void**)&origSetHmdType)==0) ok++;
+    a=methodAddr(ms,"set_FoveatedStreaming",1);  if(a && hook(a,(void*)hookCaptureFov,(void**)&origSetFoveated)==0) ok++;
+    a=methodAddr(ms,"set_MeasuredBandwidth",1);  if(a && hook(a,(void*)hookSetMeasuredBandwidth,(void**)&origSetMeasuredBandwidth)==0) ok++;
     origSendReload=(void(*)(void*))methodAddr(ms,"SendSettingsReload",0);
-    if(!origSendReload && pClassGetParent){   // 方法定义在泛型基类上: 沿父类链查找
-      MonoClass* c=pClassGetParent(ms);
-      for(int i=0;i<4 && c && !origSendReload;i++){
-        origSendReload=(void(*)(void*))methodAddr(c,"SendSettingsReload",0);
-        if(!origSendReload) c=pClassGetParent(c);
-      }
-    }
+    if(!origSendReload && pClassGetParent){ MonoClass* c=pClassGetParent(ms); for(int i=0;i<4 && c && !origSendReload;i++){ origSendReload=(void(*)(void*))methodAddr(c,"SendSettingsReload",0); if(!origSendReload) c=pClassGetParent(c); } }
   } else LOGE("SharedMobileSettings class not found");
   MonoClass* ss=getClass("VirtualDesktop.Mobile.SharedStreamerSettings, VirtualDesktop.Mobile.Shared");
-  if(ss){
-    void* a=methodAddr(ss,"set_ActiveCodec",1);
-    if(a && hook(a,(void*)hookCaptureCodec,(void**)&origSetActiveCodec)==0) ok++;
-  } else LOGE("SharedStreamerSettings class not found");
-
+  if(ss){ void* a=methodAddr(ss,"set_ActiveCodec",1); if(a && hook(a,(void*)hookCaptureCodec,(void**)&origSetActiveCodec)==0) ok++; } else LOGE("SharedStreamerSettings class not found");
   MonoClass* jh=getClass("VirtualDesktop.Core.JsonHelper, VirtualDesktop.Core");
-  if(jh){
-    void* a=methodAddr(jh,"SerializerObject",2);
-    if(a && hook(a,(void*)hookSerializerObject,(void**)&origSerializerObject)==0) ok++;
-  } else LOGE("JsonHelper class not found");
-
+  if(jh){ void* a=methodAddr(jh,"SerializerObject",2); if(a && hook(a,(void*)hookSerializerObject,(void**)&origSerializerObject)==0) ok++; } else LOGE("JsonHelper class not found");
   MonoClass* st=getClass("VirtualDesktop.Mobile.SettingsTab, VirtualDesktop.Mobile");
-  if(st){
-    void* a=methodAddr(st,"OnDesktopBitrateLimitChanged",2);
-    if(a && hook(a,(void*)hookSettingsDesktopLimitChanged,(void**)&origSettingsDesktopLimitChanged)==0) ok++;
-    a=methodAddr(st,"OnMeasuredBandwidthChanged",0);
-    if(a && hook(a,(void*)hookSettingsMeasured,(void**)&origSettingsMeasured)==0) ok++;
-  } else LOGE("SettingsTab class not found");
-  MonoClass* strm=getClass("VirtualDesktop.Mobile.StreamingTab, VirtualDesktop.Mobile");
-  if(strm){
-    void* a=methodAddr(strm,"OnVRBitrateLimitChanged",2);
-    if(a && hook(a,(void*)hookStreamingVRLimitChanged,(void**)&origStreamingVRLimitChanged)==0) ok++;
-    a=methodAddr(strm,"UpdateVRBitrateLimit",0);
-    if(a && hook(a,(void*)hookUpdateVRLimit,(void**)&origUpdateVRLimit)==0) ok++;
-  } else LOGE("StreamingTab class not found");
+  if(st){ void* a=methodAddr(st,"OnMeasuredBandwidthChanged",0); if(a && hook(a,(void*)hookSettingsMeasured,(void**)&origSettingsMeasured)==0) ok++; } else LOGE("SettingsTab class not found");
   MonoClass* ls=getClass("Xenko.UI.Controls.LimitSlider, Xenko.UI");
-  if(ls){
-    void* a=methodAddr(ls,"set_Limit",1);
-    if(a && hook(a,(void*)hookLimitSliderSetLimit,(void**)&origLimitSliderSetLimit)==0) ok++;
-  } else LOGE("LimitSlider class not found");
-
+  if(ls){ void* a=methodAddr(ls,"set_Limit",1); if(a && hook(a,(void*)hookLimitSliderSetLimit,(void**)&origLimitSliderSetLimit)==0) ok++; } else LOGE("LimitSlider class not found");
   gBitrateHooked.store(ok>0);
-  LOGI("bitrate hooks=%d",ok);
-  return hx && us;
+  LOGI("bitrate hooks=%d scale=%.2f",ok,rateMul());
+  return hx && us && ms;
 }
 
 // ---- Serialize hook: 载入监控捕获 goodFont/goodMap ----

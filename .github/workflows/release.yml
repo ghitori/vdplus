@@ -78,13 +78,21 @@ jobs:
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
         run: ./gradlew :app:assembleRelease --no-daemon --stacktrace
 
-      - name: Upload APK + workflow artifact
+      - name: Show built APK versionName
+        run: |
+          APK=app/build/outputs/apk/release/app-release.apk
+          AAPT=$(ls "${ANDROID_HOME:-$ANDROID_SDK_ROOT}"/build-tools/*/aapt 2>/dev/null | head -1)
+          if [ -n "$AAPT" ]; then
+            "$AAPT" dump badging "$APK" | grep -m1 '^package:'
+          else
+            echo "aapt not found, skip"
+          fi
+
+      - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
           name: vdplus-${{ needs.check.outputs.buildname }}
-          path: |
-            app/build/outputs/apk/release/app-release.apk
-            .github/workflows/release.yml
+          path: app/build/outputs/apk/release/app-release.apk
 
       - name: Publish release
         if: needs.check.outputs.release == 'true'

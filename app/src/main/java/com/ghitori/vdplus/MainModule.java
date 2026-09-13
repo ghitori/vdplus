@@ -5,8 +5,6 @@ import android.content.pm.ApplicationInfo;
 import android.util.Log;
 
 import java.io.ByteArrayOutputStream;
-import java.io.File;
-import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
@@ -25,7 +23,6 @@ import io.github.libxposed.api.XposedModuleInterface.PackageLoadedParam;
 public class MainModule extends XposedModule {
     private static final String TAG = "VDPlus";
     private static final String TARGET = "VirtualDesktop.Android";
-    private static final String LIB = "libvdplus.so";
     private static final String PREFS = "vdplus";
 
     private static final String K_IMPORTED = "imported_dict";
@@ -57,8 +54,12 @@ public class MainModule extends XposedModule {
             log(Log.ERROR, TAG, "get module apk failed", t);
         }
 
-        File filesDir = new File(param.getApplicationInfo().dataDir, "files");
-        loadNative(moduleApk, filesDir);
+        try {
+            System.loadLibrary("vdplus");
+            log(Log.INFO, TAG, "native loaded");
+        } catch (Throwable t) {
+            log(Log.ERROR, TAG, "native load failed", t);
+        }
 
         try {
             boolean useImported = readBool(K_USE_IMPORTED, true);
@@ -77,32 +78,6 @@ public class MainModule extends XposedModule {
             log(Log.INFO, TAG, "dict=" + dict.size() + " imported=" + useImported);
         } catch (Throwable t) {
             log(Log.ERROR, TAG, "init failed", t);
-        }
-    }
-
-    private void loadNative(String moduleApk, File filesDir) {
-        try {
-            if (moduleApk == null) throw new IllegalStateException("no module apk");
-            ZipFile zf = new ZipFile(moduleApk);
-            try {
-                ZipEntry e = zf.getEntry("lib/arm64-v8a/" + LIB);
-                if (e == null) throw new IllegalStateException("no " + LIB);
-                filesDir.mkdirs();
-                File out = new File(filesDir, LIB);
-                InputStream in = zf.getInputStream(e);
-                FileOutputStream fos = new FileOutputStream(out);
-                byte[] buf = new byte[8192];
-                int n;
-                while ((n = in.read(buf)) > 0) fos.write(buf, 0, n);
-                fos.close();
-                in.close();
-                System.load(out.getAbsolutePath());
-                log(Log.INFO, TAG, "native loaded");
-            } finally {
-                zf.close();
-            }
-        } catch (Throwable t) {
-            log(Log.ERROR, TAG, "native load failed", t);
         }
     }
 

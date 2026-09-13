@@ -48,7 +48,7 @@ android {
     }
 
     packaging {
-        jniLibs { useLegacyPackaging = true }
+        jniLibs { useLegacyPackaging = false }
         resources { excludes += ['META-INF/*.SF', 'META-INF/*.RSA', 'META-INF/*.DSA'] }
     }
 

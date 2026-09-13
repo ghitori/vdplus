@@ -44,6 +44,26 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Generate changelog
+        if: needs.check.outputs.release == 'true'
+        run: |
+          prev=$(git describe --tags --abbrev=0 --match 'v*' 2>/dev/null || true)
+          {
+            if [ -n "$prev" ]; then
+              echo "更新内容："
+              echo
+              git log "$prev"..HEAD --pretty=format:'- %s'
+            else
+              echo "首次发布"
+            fi
+            echo
+          } > changelog.md
+          echo '--- changelog ---'
+          cat changelog.md
 
       - name: Use commit hash as versionName (no version bump)
         if: needs.check.outputs.release != 'true'
@@ -100,8 +120,8 @@ jobs:
         with:
           tag_name: v${{ needs.check.outputs.version }}
           name: v${{ needs.check.outputs.version }}
+          body_path: changelog.md
           files: app/build/outputs/apk/release/app-release.apk
-          generate_release_notes: true
           fail_on_unmatched_files: true
 
       - name: Publish release to Xposed-Modules-Repo
@@ -112,5 +132,6 @@ jobs:
           token: ${{ secrets.MODULE_REPO_TOKEN }}
           tag_name: v${{ needs.check.outputs.version }}
           name: v${{ needs.check.outputs.version }}
+          body_path: changelog.md
           files: app/build/outputs/apk/release/app-release.apk
           fail_on_unmatched_files: true
